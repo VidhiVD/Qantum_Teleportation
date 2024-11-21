@@ -1,0 +1,101 @@
+import cirq
+import numpy as np
+
+def prepare_custom_state(qubit, amplitudes, circuit):
+    """
+    Prepare a custom initial state for a qubit using its amplitudes.
+    Amplitudes should be normalized (|a0|^2 + |a1|^2 = 1).
+    """
+    a0, a1 = amplitudes
+    if not np.isclose(np.abs(a0)**2 + np.abs(a1)**2, 1):
+        raise ValueError("Amplitudes must be normalized.")
+    # Prepare the custom state
+    circuit.append(cirq.reset(qubit))  # Ensure qubit starts in |0>
+    theta = 2 * np.arccos(np.real(a0))
+    phi = np.angle(a1)
+    circuit.append(cirq.rx(theta)(qubit))
+    circuit.append(cirq.rz(phi)(qubit))
+
+
+def add_entanglement(q1, q2, circuit):
+    """
+    Create an EPR pair (entangled state) between two qubits.
+    """
+    circuit.append(cirq.H(q1))  # Hadamard on q1
+    circuit.append(cirq.CNOT(q1, q2))  # CNOT from q1 to q2
+
+
+def apply_decoherence(qubits, p, circuit):
+    """
+    Introduce depolarizing noise with probability `p` to all qubits.
+    """
+    for qubit in qubits:
+        circuit.append(cirq.depolarize(p)(qubit))
+
+
+def teleport(circuit, a, b, c, qubits, decoherence_prob=0.01):
+    """
+    Implements teleportation of qubit `a` to qubit `c` using intermediate qubit `b`.
+    """
+    # Step 1: Prepare entanglement between B and C
+    add_entanglement(b, c, circuit)
+
+    # Step 2: Entangle A with B
+    circuit.append(cirq.CNOT(a, b))
+    circuit.append(cirq.H(a))
+
+    # Step 3: Measure A and B
+    m_a = cirq.measure(a, key="m_a")
+    m_b = cirq.measure(b, key="m_b")
+    circuit.append(m_a)
+    circuit.append(m_b)
+
+    # Step 4: Apply corrections to C
+    circuit.append(cirq.X(c).with_classical_control(cirq.Key("m_b")))
+    circuit.append(cirq.Z(c).with_classical_control(cirq.Key("m_a")))
+
+    # Step 5: Add decoherence
+    apply_decoherence(qubits, decoherence_prob, circuit)
+
+
+def visualize_circuit(circuit):
+    """
+    Prints the quantum circuit in a human-readable format.
+    """
+    print("\nQuantum Circuit:")
+    print(circuit)
+
+
+# Main Program
+def main():
+    # Parameters
+    num_particles = 3  # Number of particles
+    qubits_per_particle = 2
+    decoherence_prob = 0.01  # Probability of decoherence
+    custom_amplitudes = [0.8, 0.6j]  # Initial state for particle A (|ψ> = 0.8|0> + 0.6j|1>)
+
+    # Initialize qubits
+    total_qubits = num_particles * qubits_per_particle
+    qubits = [cirq.NamedQubit(f"q{i}") for i in range(total_qubits)]
+    a, b, c = qubits[0], qubits[1], qubits[2]  # A, B, C
+
+    # Build the circuit
+    circuit = cirq.Circuit()
+    prepare_custom_state(a, custom_amplitudes, circuit)
+    teleport(circuit, a, b, c, qubits, decoherence_prob)
+
+    # Visualize the circuit
+    visualize_circuit(circuit)
+
+    # Simulate the circuit
+    simulator = cirq.DensityMatrixSimulator()  # Use density matrix to handle decoherence
+    results = simulator.run(circuit, repetitions=100)
+
+    # Output results
+    print("\nSimulation Results:")
+    print(results.histogram(key="m_a"))
+    print(results.histogram(key="m_b"))
+
+
+if __name__ == "__main__":
+    main()
